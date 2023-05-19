@@ -5,7 +5,7 @@ REGION=asia-northeast1
 ENV_FILE=env.yaml
 LOG_LEVEL=debug
 
-SERVICE=cloud_logging_handler
+SERVICE=cloud-logging-handler
 VERSION=latest
 IMAGE=$REGIST_REGION/$PROJECT/$SERVICE:$VERSION
 

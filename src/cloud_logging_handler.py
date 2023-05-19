@@ -7,7 +7,13 @@ import json
 import logging
 import sys
 
-from src.context_request import get_request
+from contextvars import ContextVar
+
+
+class RequestLogs:
+    def __init__(self, request, json_payload):
+        self.request = request
+        self.json_payload = json_payload
 
 
 class CloudLoggingHandler(logging.StreamHandler):
@@ -20,6 +26,21 @@ class CloudLoggingHandler(logging.StreamHandler):
             self.json = json
 
         self.project = project
+
+    REQUEST_ID_CTX_KEY = "request_id"
+
+    _request_ctx_var: ContextVar[RequestLogs] = ContextVar(
+        REQUEST_ID_CTX_KEY, default=None
+    )
+
+    def get_request(self) -> RequestLogs:
+        return self._request_ctx_var.get()
+
+    def set_request(self, request: RequestLogs):
+        return self._request_ctx_var.set(request)
+
+    def reset_request(self, request_id):
+        self._request_ctx_var.reset(request_id)
 
     def emit(self, record):
         """
@@ -34,36 +55,99 @@ class CloudLoggingHandler(logging.StreamHandler):
         """
         try:
             msg = self.format(record)
-            stream = self.stream
             # issue 35046: merged two stream.writes into one.
-            json_payload = {
-                "severity": record.levelname,
-                "name": record.name,
-                "message": msg,
-                "pathname": record.filename,
-                "lineno": record.lineno,
-                "process": record.process,
-            }
 
-            trace = None
-            span = None
-            request = get_request()
-            if request and self.trace_header_name.lower() in request.headers.keys():
-                # trace can be formatted as "X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE"
-                raw_trace = request.headers.get(self.trace_header_name).split("/")
-                trace = raw_trace[0]
-                if len(raw_trace) > 1:
-                    span = raw_trace[1].split(";")[0]
-            if trace:
-                json_payload[
-                    "logging.googleapis.com/trace"
-                ] = f"projects/{self.project}/traces/{trace}"
-            if span:
-                json_payload["logging.googleapis.com/spanId"] = span
+            request_log = self.get_request()
+            if not request_log:
+                json_payload = {
+                    "severity": record.levelname,
+                    "name": record.name,
+                    "pathname": record.filename,
+                    "lineno": record.lineno,
+                    "process": record.process,
+                }
 
-            stream.write(self.json.dumps(json_payload) + self.terminator)
-            self.flush()
+                trace = None
+                span = None
+                json_payload["lines"] = [
+                    {
+                        "pathname": record.filename,
+                        "lineno": record.lineno,
+                        "message": msg,
+                    }
+                ]
+                self.stream.write(self.json.dumps(json_payload) + self.terminator)
+                return
+
+            request = request_log.request
+            if not request_log.json_payload:
+                request_log.json_payload = {
+                    "severity": record.levelname,
+                    "name": record.name,
+                    "process": record.process,
+                }
+
+                trace = None
+                span = None
+                if request:
+                    request_log.json_payload["message"] = str(request.url)
+
+                    if self.trace_header_name.lower() in request.headers.keys():
+                        # trace can be formatted as "X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE"
+                        raw_trace = request.headers.get(self.trace_header_name).split(
+                            "/"
+                        )
+                        trace = raw_trace[0]
+                        if len(raw_trace) > 1:
+                            span = raw_trace[1].split(";")[0]
+
+                    if trace:
+                        request_log.json_payload[
+                            "logging.googleapis.com/trace"
+                        ] = f"projects/{self.project}/traces/{trace}"
+                    if span:
+                        request_log.json_payload["logging.googleapis.com/spanId"] = span
+
+                request_log.json_payload["lines"] = [
+                    {
+                        "pathname": record.filename,
+                        "lineno": record.lineno,
+                        "message": msg,
+                    }
+                ]
+            else:
+                cur_level = getattr(logging, record.levelname)
+                prev_level = getattr(logging, request_log.json_payload["severity"])
+                if cur_level > prev_level:
+                    request_log.json_payload["severity"] = record.levelname
+
+                request_log.json_payload["lines"].append(
+                    {
+                        "pathname": record.filename,
+                        "lineno": record.lineno,
+                        "message": msg,
+                    }
+                )
+
+            self.set_request(request_log)
+
         except RecursionError:  # See issue 36272
             raise
         except Exception as e:
             self.handleError(record)
+
+    def flush(self):
+        """
+        Ensure all logging output has been flushed.
+
+        This version does nothing and is intended to be implemented by
+        subclasses.
+        """
+        request_log = self.get_request()
+        if request_log:
+            log = request_log.json_payload
+            self.stream.write(self.json.dumps(log) + self.terminator)
+
+            request = request_log.request
+            if hasattr(request.state, "token"):
+                self.reset_request(request.state.token)

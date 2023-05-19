@@ -1,0 +1,3 @@
+*.sh
+Dockerfile
+env.yaml

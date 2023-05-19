@@ -22,4 +22,4 @@ WORKDIR /app
 COPY . /app
 # ENTRYPOINT [ "/bin/bash"]
 ENV PYTHONUNBUFFERED=1
-CMD uvicorn --host 0.0.0.0 --port 8080 main:app --no-proxy-headers --no-access-log --log-level $LOG_LEVEL
+CMD uvicorn --host 0.0.0.0 --port 8080 main:app --no-proxy-headers --no-access-log --log-level critical
