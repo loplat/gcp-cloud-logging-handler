@@ -76,3 +76,15 @@ known-first-party = ["cloud_logging_handler"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "aiohttp>=3.13.2",
+    "django>=5.2.8",
+    "fastapi>=0.123.0",
+    "flask>=3.1.2",
+    "httpx>=0.28.1",
+    "sanic>=25.3.0",
+    "sanic-testing>=24.6.0",
+    "starlette>=0.50.0",
+]

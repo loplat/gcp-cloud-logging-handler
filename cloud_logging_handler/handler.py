@@ -31,13 +31,130 @@ class RequestLogs:
     """Container for request context and accumulated log entries.
 
     Attributes:
-        request: The HTTP request object (typically from FastAPI/Starlette).
+        request: The HTTP request object (framework-agnostic).
         json_payload: Dictionary containing structured log data.
     """
 
     def __init__(self, request: Any, json_payload: dict[str, Any] | None = None) -> None:
         self.request = request
         self.json_payload = json_payload
+
+
+def _get_framework(request: Any) -> str:
+    """Detect the web framework from request object's module.
+
+    Uses module name for fast detection, falls back to attribute detection
+    for custom request objects.
+
+    Args:
+        request: HTTP request object from any framework.
+
+    Returns:
+        Framework identifier: 'django', 'flask', 'starlette', 'aiohttp', 'sanic', or 'unknown'.
+    """
+    module = type(request).__module__
+
+    # Fast path: check module name
+    if module.startswith("django"):
+        return "django"
+    if module.startswith("werkzeug") or module.startswith("flask"):
+        return "flask"
+    if module.startswith("starlette"):
+        return "starlette"
+    if module.startswith("aiohttp"):
+        return "aiohttp"
+    if module.startswith("sanic"):
+        return "sanic"
+
+    # Fallback: detect by attributes for custom/mock request objects
+    if hasattr(request, "META"):
+        return "django"
+    if hasattr(request, "base_url") and hasattr(request, "full_path"):
+        return "flask"
+
+    return "unknown"
+
+
+def _get_header(request: Any, header_name: str) -> str | None:
+    """Get a header value from request object (framework-agnostic).
+
+    Supports: FastAPI/Starlette, Flask, Sanic, Django, aiohttp, and dict-like headers.
+
+    Args:
+        request: HTTP request object from any framework.
+        header_name: Name of the header to retrieve.
+
+    Returns:
+        Header value if found, None otherwise.
+    """
+    if request is None:
+        return None
+
+    framework = _get_framework(request)
+
+    # Django: headers are in META with HTTP_ prefix
+    if framework == "django":
+        meta_key = f"HTTP_{header_name.upper().replace('-', '_')}"
+        return request.META.get(meta_key)
+
+    # Flask, Starlette, aiohttp, Sanic: headers attribute with dict-like access
+    headers = getattr(request, "headers", None)
+    if headers is None:
+        return None
+
+    # Most frameworks support case-insensitive dict-like access
+    if hasattr(headers, "get"):
+        value = headers.get(header_name) or headers.get(header_name.lower())
+        if value:
+            return value
+
+    # Fallback: iterate for case-insensitive lookup
+    if hasattr(headers, "items"):
+        header_lower = header_name.lower()
+        for key, value in headers.items():
+            if key.lower() == header_lower:
+                return value
+
+    return None
+
+
+def _get_url(request: Any) -> str | None:
+    """Get URL from request object (framework-agnostic).
+
+    Supports: FastAPI/Starlette, Flask, Sanic, Django, aiohttp.
+
+    Args:
+        request: HTTP request object from any framework.
+
+    Returns:
+        URL string if available, None otherwise.
+    """
+    if request is None:
+        return None
+
+    framework = _get_framework(request)
+
+    if framework == "django":
+        return request.build_absolute_uri()
+
+    if framework == "flask":
+        return str(request.base_url) + request.full_path.rstrip("?")
+
+    if framework == "aiohttp":
+        # aiohttp: request.url is a URL object, request.path is just path
+        if hasattr(request, "url"):
+            return str(request.url)
+        return request.path
+
+    # Starlette, Sanic, unknown: try common patterns
+    if hasattr(request, "url"):
+        return str(request.url)
+
+    # aiohttp fallback for unknown framework
+    if hasattr(request, "path"):
+        return request.path
+
+    return None
 
 
 class CloudLoggingHandler(logging.StreamHandler):
@@ -52,6 +169,7 @@ class CloudLoggingHandler(logging.StreamHandler):
         - Log aggregation per request using context variables
         - Severity level tracking (highest severity wins)
         - Custom JSON encoder support (e.g., ujson for performance)
+        - Framework-agnostic: works with FastAPI, Flask, Sanic, Django, aiohttp
 
     Example:
         >>> import logging
@@ -152,13 +270,15 @@ class CloudLoggingHandler(logging.StreamHandler):
                 span = None
 
                 if request:
-                    request_log.json_payload["url"] = str(request.url)
+                    url = _get_url(request)
+                    if url:
+                        request_log.json_payload["url"] = url
 
                     if self.trace_header_name:
-                        header_name_lower = self.trace_header_name.lower()
-                        if header_name_lower in [key.lower() for key in request.headers.keys()]:
-                            # trace can be formatted as "X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE"
-                            raw_trace = request.headers.get(self.trace_header_name).split("/")
+                        trace_header_value = _get_header(request, self.trace_header_name)
+                        if trace_header_value:
+                            # trace can be formatted as "TRACE_ID/SPAN_ID;o=TRACE_TRUE"
+                            raw_trace = trace_header_value.split("/")
                             trace = raw_trace[0]
                             if len(raw_trace) > 1:
                                 span = raw_trace[1].split(";")[0]

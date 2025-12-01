@@ -5,15 +5,98 @@ import json
 import logging
 
 from cloud_logging_handler import CloudLoggingHandler, RequestLogs
+from cloud_logging_handler.handler import _get_header, _get_url
 
 
 class MockRequest:
-    """Mock request object for testing."""
+    """Mock request object for testing (FastAPI/Starlette style)."""
 
     def __init__(self, url: str = "http://test.com/api", headers: dict = None):
         self.url = url
         self.headers = headers or {}
         self.state = type("State", (), {"token": None})()
+
+
+class MockFlaskRequest:
+    """Mock Flask-style request object."""
+
+    def __init__(
+        self, base_url: str = "http://test.com", full_path: str = "/api?", headers: dict = None
+    ):
+        self.base_url = base_url
+        self.full_path = full_path
+        self.headers = headers or {}
+
+
+class MockDjangoRequest:
+    """Mock Django-style request object."""
+
+    def __init__(self, url: str = "http://test.com/api", meta: dict = None):
+        self._url = url
+        self.META = meta or {}
+
+    def build_absolute_uri(self):
+        return self._url
+
+
+class MockAiohttpRequest:
+    """Mock aiohttp-style request object."""
+
+    def __init__(self, path: str = "/api", headers: dict = None):
+        self.path = path
+        self.headers = headers or {}
+
+
+class TestHelperFunctions:
+    """Test cases for helper functions."""
+
+    def test_get_header_fastapi_style(self):
+        """Test header extraction from FastAPI/Starlette request."""
+        request = MockRequest(headers={"X-Cloud-Trace-Context": "trace123"})
+        assert _get_header(request, "X-Cloud-Trace-Context") == "trace123"
+
+    def test_get_header_case_insensitive(self):
+        """Test case-insensitive header lookup."""
+        request = MockRequest(headers={"x-cloud-trace-context": "trace123"})
+        assert _get_header(request, "X-Cloud-Trace-Context") == "trace123"
+
+    def test_get_header_django_style(self):
+        """Test header extraction from Django request."""
+        request = MockDjangoRequest(meta={"HTTP_X_CLOUD_TRACE_CONTEXT": "trace123"})
+        assert _get_header(request, "X-Cloud-Trace-Context") == "trace123"
+
+    def test_get_header_missing(self):
+        """Test missing header returns None."""
+        request = MockRequest(headers={})
+        assert _get_header(request, "X-Cloud-Trace-Context") is None
+
+    def test_get_header_none_request(self):
+        """Test None request returns None."""
+        assert _get_header(None, "X-Cloud-Trace-Context") is None
+
+    def test_get_url_fastapi_style(self):
+        """Test URL extraction from FastAPI/Starlette request."""
+        request = MockRequest(url="http://test.com/api")
+        assert _get_url(request) == "http://test.com/api"
+
+    def test_get_url_flask_style(self):
+        """Test URL extraction from Flask request."""
+        request = MockFlaskRequest(base_url="http://test.com", full_path="/api?param=1")
+        assert _get_url(request) == "http://test.com/api?param=1"
+
+    def test_get_url_django_style(self):
+        """Test URL extraction from Django request."""
+        request = MockDjangoRequest(url="http://test.com/api")
+        assert _get_url(request) == "http://test.com/api"
+
+    def test_get_url_aiohttp_style(self):
+        """Test URL extraction from aiohttp request."""
+        request = MockAiohttpRequest(path="/api")
+        assert _get_url(request) == "/api"
+
+    def test_get_url_none_request(self):
+        """Test None request returns None."""
+        assert _get_url(None) is None
 
 
 class TestCloudLoggingHandler:
@@ -74,6 +157,21 @@ class TestCloudLoggingHandler:
     def test_trace_context_extraction(self):
         """Test extraction of trace context from headers."""
         request = MockRequest(headers={"X-Cloud-Trace-Context": "abc123/def456;o=1"})
+        request_logs = RequestLogs(request, None)
+        self.handler.set_request(request_logs)
+
+        self.logger.info("Traced message")
+        self.handler.flush()
+
+        output = self.stream.getvalue()
+        log_entry = json.loads(output.strip())
+
+        assert log_entry["logging.googleapis.com/trace"] == "projects/test-project/traces/abc123"
+        assert log_entry["logging.googleapis.com/spanId"] == "def456"
+
+    def test_trace_context_case_insensitive(self):
+        """Test trace context extraction is case-insensitive."""
+        request = MockRequest(headers={"x-cloud-trace-context": "abc123/def456;o=1"})
         request_logs = RequestLogs(request, None)
         self.handler.set_request(request_logs)
 
@@ -169,6 +267,24 @@ class TestCloudLoggingHandler:
         assert "Test message" in message
         # Check for ISO timestamp format (contains T and timezone info)
         assert "T" in message
+
+    def test_django_request(self):
+        """Test with Django-style request."""
+        request = MockDjangoRequest(
+            url="http://django.test/api",
+            meta={"HTTP_X_CLOUD_TRACE_CONTEXT": "django123/span456;o=1"},
+        )
+        request_logs = RequestLogs(request, None)
+        self.handler.set_request(request_logs)
+
+        self.logger.info("Django test")
+        self.handler.flush()
+
+        output = self.stream.getvalue()
+        log_entry = json.loads(output.strip())
+
+        assert log_entry["url"] == "http://django.test/api"
+        assert log_entry["logging.googleapis.com/trace"] == "projects/test-project/traces/django123"
 
 
 class TestRequestLogs:
