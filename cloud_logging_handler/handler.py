@@ -40,57 +40,47 @@ class RequestLogs:
         self.json_payload = json_payload
 
 
-def _get_framework(request: Any) -> str:
-    """Detect the web framework from request object's module.
-
-    Uses module name for fast detection, falls back to attribute detection
-    for custom request objects.
+def _get_framework_from_app(app: Any) -> str:
+    """Detect the web framework from app object's module.
 
     Args:
-        request: HTTP request object from any framework.
+        app: Web framework application object.
 
     Returns:
         Framework identifier: 'django', 'flask', 'starlette', 'aiohttp', 'sanic', or 'unknown'.
     """
-    module = type(request).__module__
+    if app is None:
+        return "unknown"
 
-    # Fast path: check module name
+    module = type(app).__module__
+
     if module.startswith("django"):
         return "django"
-    if module.startswith("werkzeug") or module.startswith("flask"):
+    if module.startswith("flask"):
         return "flask"
-    if module.startswith("starlette"):
+    if module.startswith("starlette") or module.startswith("fastapi"):
         return "starlette"
     if module.startswith("aiohttp"):
         return "aiohttp"
     if module.startswith("sanic"):
         return "sanic"
 
-    # Fallback: detect by attributes for custom/mock request objects
-    if hasattr(request, "META"):
-        return "django"
-    if hasattr(request, "base_url") and hasattr(request, "full_path"):
-        return "flask"
-
     return "unknown"
 
 
-def _get_header(request: Any, header_name: str) -> str | None:
-    """Get a header value from request object (framework-agnostic).
-
-    Supports: FastAPI/Starlette, Flask, Sanic, Django, aiohttp, and dict-like headers.
+def _get_header(request: Any, header_name: str, framework: str) -> str | None:
+    """Get a header value from request object.
 
     Args:
         request: HTTP request object from any framework.
         header_name: Name of the header to retrieve.
+        framework: Framework identifier from _get_framework_from_app().
 
     Returns:
         Header value if found, None otherwise.
     """
     if request is None:
         return None
-
-    framework = _get_framework(request)
 
     # Django: headers are in META with HTTP_ prefix
     if framework == "django":
@@ -118,21 +108,18 @@ def _get_header(request: Any, header_name: str) -> str | None:
     return None
 
 
-def _get_url(request: Any) -> str | None:
-    """Get URL from request object (framework-agnostic).
-
-    Supports: FastAPI/Starlette, Flask, Sanic, Django, aiohttp.
+def _get_url(request: Any, framework: str) -> str | None:
+    """Get URL from request object.
 
     Args:
         request: HTTP request object from any framework.
+        framework: Framework identifier from _get_framework_from_app().
 
     Returns:
         URL string if available, None otherwise.
     """
     if request is None:
         return None
-
-    framework = _get_framework(request)
 
     if framework == "django":
         return request.build_absolute_uri()
@@ -141,7 +128,6 @@ def _get_url(request: Any) -> str | None:
         return str(request.base_url) + request.full_path.rstrip("?")
 
     if framework == "aiohttp":
-        # aiohttp: request.url is a URL object, request.path is just path
         if hasattr(request, "url"):
             return str(request.url)
         return request.path
@@ -150,7 +136,6 @@ def _get_url(request: Any) -> str | None:
     if hasattr(request, "url"):
         return str(request.url)
 
-    # aiohttp fallback for unknown framework
     if hasattr(request, "path"):
         return request.path
 
@@ -190,20 +175,27 @@ class CloudLoggingHandler(logging.StreamHandler):
 
     def __init__(
         self,
+        app: Any = None,
         trace_header_name: str | None = None,
         json_impl: ModuleType | JsonEncoder | None = None,
         project: str | None = None,
+        framework: str | None = None,
     ) -> None:
         """Initialize the Cloud Logging Handler.
 
         Args:
+            app: Web framework application object (FastAPI, Flask, Django, etc.).
+                Used to detect framework type once at initialization.
             trace_header_name: HTTP header name for trace context.
                 Typically "X-Cloud-Trace-Context" for GCP.
             json_impl: Custom JSON encoder module (e.g., ujson).
                 Must have a `dumps` method. Defaults to stdlib json.
             project: GCP project ID for trace URL construction.
+            framework: Explicit framework name. If provided, skips auto-detection.
+                Valid values: 'django', 'flask', 'starlette', 'aiohttp', 'sanic'.
         """
         super().__init__(stream=sys.stdout)
+        self.framework = framework if framework else _get_framework_from_app(app)
         self.trace_header_name = trace_header_name
         self.json: ModuleType | JsonEncoder = json_impl if json_impl else json
         self.project = project
@@ -270,12 +262,12 @@ class CloudLoggingHandler(logging.StreamHandler):
                 span = None
 
                 if request:
-                    url = _get_url(request)
+                    url = _get_url(request, self.framework)
                     if url:
                         request_log.json_payload["url"] = url
 
                     if self.trace_header_name:
-                        trace_header_value = _get_header(request, self.trace_header_name)
+                        trace_header_value = _get_header(request, self.trace_header_name, self.framework)
                         if trace_header_value:
                             # trace can be formatted as "TRACE_ID/SPAN_ID;o=TRACE_TRUE"
                             raw_trace = trace_header_value.split("/")
