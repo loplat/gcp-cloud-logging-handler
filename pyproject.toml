@@ -1,6 +1,6 @@
 [project]
 name = "cloud-logging-handler"
-version = "0.2.1"
+version = "0.2.2"
 description = "A Python logging handler for Google Cloud Logging with request tracing support"
 readme = "README.md"
 license = { text = "MIT" }
