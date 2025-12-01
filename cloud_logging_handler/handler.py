@@ -402,9 +402,9 @@ class CloudLoggingHandler(logging.StreamHandler):
                             request_log.json_payload["logging.googleapis.com/spanId"] = span
 
                 request_log.json_payload["severity"] = record.levelname
-                request_log.json_payload["message"] = (
-                    f"\n{datetime.now(timezone.utc).isoformat()}\t{record.levelname}\t{msg}"
-                )
+                request_log.json_payload["_messages"] = [
+                    f"{datetime.now(timezone.utc).isoformat()}\t{record.levelname}\t{msg}"
+                ]
             else:
                 # Subsequent log - append and update severity if higher
                 cur_level = getattr(logging, record.levelname)
@@ -412,8 +412,8 @@ class CloudLoggingHandler(logging.StreamHandler):
                 if cur_level > prev_level:
                     request_log.json_payload["severity"] = record.levelname
 
-                request_log.json_payload["message"] += (
-                    f"\n{datetime.now(timezone.utc).isoformat()}\t{record.levelname}\t{msg}"
+                request_log.json_payload["_messages"].append(
+                    f"{datetime.now(timezone.utc).isoformat()}\t{record.levelname}\t{msg}"
                 )
 
             self.set_request(request_log)
@@ -434,6 +434,10 @@ class CloudLoggingHandler(logging.StreamHandler):
             log = request_log.json_payload
             if not log:
                 return
+
+            # Join messages array into single string
+            if "_messages" in log:
+                log["message"] = "\n".join(log.pop("_messages"))
 
             self.stream.write(self.json.dumps(log) + self.terminator)
 
