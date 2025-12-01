@@ -14,6 +14,7 @@ import json
 import logging
 import sys
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -114,13 +115,16 @@ class CloudLoggingHandler(logging.StreamHandler):
         Args:
             token: Token returned from set_request().
         """
-        self._request_ctx_var.reset(token)
+        try:
+            self._request_ctx_var.reset(token)
+        except Exception as e:
+            logging.exception(e)
 
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record as structured JSON.
 
         If within a request context, logs are accumulated and the highest
-        severity level is tracked. Otherwise, logs are emitted immediately.
+        severity level is tracked. Otherwise, logs are emitted as plain text.
 
         Args:
             record: The log record to emit.
@@ -130,22 +134,8 @@ class CloudLoggingHandler(logging.StreamHandler):
             request_log = self.get_request()
 
             if not request_log:
-                # No request context - emit immediately
-                json_payload = {
-                    "severity": record.levelname,
-                    "name": record.name,
-                    "pathname": record.filename,
-                    "lineno": record.lineno,
-                    "process": record.process,
-                    "lines": [
-                        {
-                            "pathname": record.filename,
-                            "lineno": record.lineno,
-                            "message": msg,
-                        }
-                    ],
-                }
-                self.stream.write(self.json.dumps(json_payload) + self.terminator)
+                # No request context - emit plain text immediately
+                self.stream.write(msg + self.terminator)
                 return
 
             request = request_log.request
@@ -158,17 +148,32 @@ class CloudLoggingHandler(logging.StreamHandler):
                     "process": record.process,
                 }
 
-                if request:
-                    request_log.json_payload["message"] = str(request.url)
-                    self._extract_trace_context(request, request_log)
+                trace = None
+                span = None
 
-                request_log.json_payload["lines"] = [
-                    {
-                        "pathname": record.filename,
-                        "lineno": record.lineno,
-                        "message": msg,
-                    }
-                ]
+                if request:
+                    request_log.json_payload["url"] = str(request.url)
+
+                    if self.trace_header_name:
+                        header_name_lower = self.trace_header_name.lower()
+                        if header_name_lower in [key.lower() for key in request.headers.keys()]:
+                            # trace can be formatted as "X-Cloud-Trace-Context: TRACE_ID/SPAN_ID;o=TRACE_TRUE"
+                            raw_trace = request.headers.get(self.trace_header_name).split("/")
+                            trace = raw_trace[0]
+                            if len(raw_trace) > 1:
+                                span = raw_trace[1].split(";")[0]
+
+                        if trace and self.project:
+                            request_log.json_payload["logging.googleapis.com/trace"] = (
+                                f"projects/{self.project}/traces/{trace}"
+                            )
+                        if span:
+                            request_log.json_payload["logging.googleapis.com/spanId"] = span
+
+                request_log.json_payload["severity"] = record.levelname
+                request_log.json_payload["message"] = (
+                    f"\n{datetime.now(timezone.utc).isoformat()}\t{record.levelname}\t{msg}"
+                )
             else:
                 # Subsequent log - append and update severity if higher
                 cur_level = getattr(logging, record.levelname)
@@ -176,12 +181,8 @@ class CloudLoggingHandler(logging.StreamHandler):
                 if cur_level > prev_level:
                     request_log.json_payload["severity"] = record.levelname
 
-                request_log.json_payload["lines"].append(
-                    {
-                        "pathname": record.filename,
-                        "lineno": record.lineno,
-                        "message": msg,
-                    }
+                request_log.json_payload["message"] += (
+                    f"\n{datetime.now(timezone.utc).isoformat()}\t{record.levelname}\t{msg}"
                 )
 
             self.set_request(request_log)
@@ -191,38 +192,6 @@ class CloudLoggingHandler(logging.StreamHandler):
         except Exception:
             self.handleError(record)
 
-    def _extract_trace_context(self, request: Any, request_log: RequestLogs) -> None:
-        """Extract trace context from request headers.
-
-        Args:
-            request: HTTP request object with headers attribute.
-            request_log: RequestLogs to update with trace information.
-        """
-        if not self.trace_header_name or request_log.json_payload is None:
-            return
-
-        header_name_lower = self.trace_header_name.lower()
-        headers = {k.lower(): v for k, v in request.headers.items()}
-
-        if header_name_lower not in headers:
-            return
-
-        # Parse: "TRACE_ID/SPAN_ID;o=TRACE_TRUE"
-        raw_trace = headers[header_name_lower].split("/")
-        trace = raw_trace[0]
-        span = None
-
-        if len(raw_trace) > 1:
-            span = raw_trace[1].split(";")[0]
-
-        if trace and self.project:
-            request_log.json_payload["logging.googleapis.com/trace"] = (
-                f"projects/{self.project}/traces/{trace}"
-            )
-
-        if span:
-            request_log.json_payload["logging.googleapis.com/spanId"] = span
-
     def flush(self) -> None:
         """Flush accumulated logs for the current request.
 
@@ -230,9 +199,13 @@ class CloudLoggingHandler(logging.StreamHandler):
         all accumulated log entries as a single structured log entry.
         """
         request_log = self.get_request()
-        if request_log and request_log.json_payload:
-            self.stream.write(self.json.dumps(request_log.json_payload) + self.terminator)
+        if request_log:
+            log = request_log.json_payload
+            if not log:
+                return
+
+            self.stream.write(self.json.dumps(log) + self.terminator)
 
             request = request_log.request
-            if request and hasattr(request.state, "token") and request.state.token is not None:
-                self.reset_request(request.state.token)
+            if hasattr(request, "ctx"):
+                self.reset_request(request.ctx)

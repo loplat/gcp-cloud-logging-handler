@@ -1,16 +1,15 @@
 [project]
 name = "cloud-logging-handler"
-version = "0.1.0"
-description = "A Python logging handler for Google Cloud Logging with FastAPI integration and request tracing support"
+version = "0.2.0"
+description = "A Python logging handler for Google Cloud Logging with request tracing support"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
-    { name = "Hanson", email = "your-email@example.com" }
+    { name = "loplat", email = "dev@loplat.com" }
 ]
 keywords = [
     "google-cloud",
     "logging",
-    "fastapi",
     "cloud-logging",
     "tracing",
     "structured-logging",
@@ -25,7 +24,6 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Framework :: FastAPI",
     "Topic :: System :: Logging",
     "Topic :: Internet :: Log Analysis",
 ]
@@ -33,31 +31,18 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-fastapi = [
-    "fastapi>=0.88.0",
-    "starlette>=0.20.0",
-]
-ujson = [
-    "ujson>=5.0.0",
-]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
-    "httpx>=0.24.0",
-    "uvicorn>=0.20.0",
     "ruff>=0.1.0",
-    "mypy>=1.0.0",
-]
-all = [
-    "cloud-logging-handler[fastapi,ujson,dev]",
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/cloud-logging-handler"
-Documentation = "https://github.com/yourusername/cloud-logging-handler#readme"
-Repository = "https://github.com/yourusername/cloud-logging-handler"
-Issues = "https://github.com/yourusername/cloud-logging-handler/issues"
-Changelog = "https://github.com/yourusername/cloud-logging-handler/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/loplat/gcp-cloud-logging-handler"
+Documentation = "https://github.com/loplat/gcp-cloud-logging-handler#readme"
+Repository = "https://github.com/loplat/gcp-cloud-logging-handler"
+Issues = "https://github.com/loplat/gcp-cloud-logging-handler/issues"
+Changelog = "https://github.com/loplat/gcp-cloud-logging-handler/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]
@@ -87,13 +72,6 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["cloud_logging_handler"]
-
-[tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-warn_unused_ignores = true
-disallow_untyped_defs = true
-ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

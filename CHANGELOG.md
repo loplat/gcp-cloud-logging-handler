@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-12-01
+
+### Changed
+- Simplified log output format: logs now concatenated in `message` field with timestamp
+- Non-request context logs now output as plain text instead of JSON
+- Message format: `\n{timestamp}\t{level}\t{message}`
+
+### Removed
+- Removed `lines` array from JSON output (replaced with concatenated `message`)
+- Removed FastAPI error handler integration (`add_error_handler`)
+- Removed `examples/` directory
+
 ## [0.1.0] - 2025-11-28
 
 ### Added
@@ -15,11 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Request tracing support via `X-Cloud-Trace-Context` header
 - Log aggregation per request using context variables
 - Severity level tracking (highest severity wins)
-- FastAPI integration with `add_error_handler`
 - Support for custom JSON encoders (e.g., ujson)
 - Type hints and py.typed marker for type checking support
 
 ### Features
 - Zero external dependencies for core handler
-- Optional FastAPI integration
 - Optional ujson support for better performance

@@ -4,7 +4,7 @@
 [![Python Versions](https://img.shields.io/pypi/pyversions/cloud-logging-handler.svg)](https://pypi.org/project/cloud-logging-handler/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Python logging handler for **Google Cloud Logging** with FastAPI integration and request tracing support.
+A Python logging handler for **Google Cloud Logging** with request tracing support.
 
 ## Features
 
@@ -12,7 +12,6 @@ A Python logging handler for **Google Cloud Logging** with FastAPI integration a
 - **Request Tracing**: Automatic trace context propagation via `X-Cloud-Trace-Context` header
 - **Log Aggregation**: Aggregates all logs within a single request into one log entry
 - **Severity Tracking**: Automatically tracks the highest severity level per request
-- **FastAPI Integration**: Built-in error handlers for seamless FastAPI integration
 - **Custom JSON Encoder**: Support for high-performance JSON libraries (e.g., `ujson`)
 - **Zero Dependencies**: Core handler has no external dependencies
 
@@ -24,15 +23,6 @@ uv add cloud-logging-handler
 
 # Using pip
 pip install cloud-logging-handler
-
-# With FastAPI support
-uv add "cloud-logging-handler[fastapi]"
-
-# With ujson for better performance
-uv add "cloud-logging-handler[ujson]"
-
-# With all optional dependencies
-uv add "cloud-logging-handler[all]"
 ```
 
 ## Quick Start
@@ -64,7 +54,7 @@ logger.info("Hello, Cloud Logging!")
 import logging
 import os
 from fastapi import FastAPI, Request
-from cloud_logging_handler import CloudLoggingHandler, RequestLogs, add_error_handler
+from cloud_logging_handler import CloudLoggingHandler, RequestLogs
 
 app = FastAPI()
 
@@ -82,13 +72,10 @@ logger.setLevel(logging.DEBUG)
 # Add middleware for request context
 @app.middleware("http")
 async def logging_middleware(request: Request, call_next):
-    request.state.token = handler.set_request(RequestLogs(request, {}))
+    request.state.token = handler.set_request(RequestLogs(request, None))
     response = await call_next(request)
     handler.flush()
     return response
-
-# Add error handlers
-add_error_handler(app, logging_handler=handler)
 
 @app.get("/")
 async def root():
@@ -113,29 +100,28 @@ handler = CloudLoggingHandler(
 
 ## Log Output Format
 
-The handler outputs structured JSON logs compatible with Google Cloud Logging:
+### With Request Context
+
+When logging within a request context, logs are aggregated and output as structured JSON:
 
 ```json
 {
   "severity": "INFO",
   "name": "root",
   "process": 12345,
-  "message": "https://example.com/api/endpoint",
+  "url": "https://example.com/api/endpoint",
   "logging.googleapis.com/trace": "projects/your-project/traces/abc123",
   "logging.googleapis.com/spanId": "def456",
-  "lines": [
-    {
-      "pathname": "main.py",
-      "lineno": 42,
-      "message": "Processing request"
-    },
-    {
-      "pathname": "main.py",
-      "lineno": 45,
-      "message": "Request completed"
-    }
-  ]
+  "message": "\n2025-12-01T12:00:00.000000+00:00\tINFO\tProcessing request\n2025-12-01T12:00:00.001000+00:00\tINFO\tRequest completed"
 }
+```
+
+### Without Request Context
+
+When logging outside a request context, logs are output as plain text:
+
+```
+Processing request
 ```
 
 ## Configuration
@@ -157,7 +143,7 @@ The handler outputs structured JSON logs compatible with Google Cloud Logging:
 ## How It Works
 
 1. **Request Start**: Middleware creates a `RequestLogs` context
-2. **Log Accumulation**: All log calls within the request are accumulated
+2. **Log Accumulation**: All log calls within the request are accumulated in `message` field
 3. **Severity Tracking**: The highest severity level is tracked
 4. **Trace Extraction**: Trace context is extracted from request headers
 5. **Request End**: `flush()` emits all accumulated logs as a single structured entry
@@ -173,7 +159,7 @@ This approach provides several benefits:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/cloud-logging-handler.git
+git clone https://github.com/loplat/gcp-cloud-logging-handler.git
 cd cloud-logging-handler
 
 # Install with dev dependencies using uv
@@ -185,19 +171,6 @@ uv run pytest
 # Run linting
 uv run ruff check .
 uv run ruff format .
-
-# Run type checking
-uv run mypy cloud_logging_handler
-```
-
-### Running the Example
-
-```bash
-# Set environment variable
-export GCP_PROJECT="your-project-id"
-
-# Run example server
-uv run python examples/fastapi_app.py
 ```
 
 ## Contributing
@@ -217,4 +190,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - Inspired by [Google Cloud Logging documentation](https://cloud.google.com/logging/docs/structured-logging)
-- Built for use with [FastAPI](https://fastapi.tiangolo.com/)

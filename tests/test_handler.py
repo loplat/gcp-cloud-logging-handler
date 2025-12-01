@@ -39,15 +39,13 @@ class TestCloudLoggingHandler:
         self.logger.handlers = []
 
     def test_emit_without_request_context(self):
-        """Test logging without request context emits immediately."""
+        """Test logging without request context emits plain text."""
         self.logger.info("Test message")
 
         output = self.stream.getvalue()
         assert output
-
-        log_entry = json.loads(output.strip())
-        assert log_entry["severity"] == "INFO"
-        assert log_entry["lines"][0]["message"] == "Test message"
+        # Non-request context outputs plain text, not JSON
+        assert output.strip() == "Test message"
 
     def test_emit_with_request_context(self):
         """Test logging with request context accumulates logs."""
@@ -68,9 +66,10 @@ class TestCloudLoggingHandler:
         log_entry = json.loads(output.strip())
 
         assert log_entry["severity"] == "WARNING"  # Highest severity
-        assert len(log_entry["lines"]) == 2
-        assert log_entry["lines"][0]["message"] == "First message"
-        assert log_entry["lines"][1]["message"] == "Second message"
+        assert log_entry["url"] == "http://test.com/api"
+        # Messages are concatenated in the message field
+        assert "First message" in log_entry["message"]
+        assert "Second message" in log_entry["message"]
 
     def test_trace_context_extraction(self):
         """Test extraction of trace context from headers."""
@@ -106,7 +105,7 @@ class TestCloudLoggingHandler:
         assert log_entry["severity"] == "ERROR"
 
     def test_custom_json_encoder(self):
-        """Test using custom JSON encoder."""
+        """Test using custom JSON encoder with request context."""
 
         class CustomEncoder:
             @staticmethod
@@ -116,17 +115,26 @@ class TestCloudLoggingHandler:
         handler = CloudLoggingHandler(json_impl=CustomEncoder())
         handler.stream = io.StringIO()
 
+        # Set up request context to trigger JSON output
+        request = MockRequest()
+        request_logs = RequestLogs(request, None)
+        handler.set_request(request_logs)
+
         logger = logging.getLogger("custom_logger")
         logger.handlers = []
         logger.addHandler(handler)
         logger.setLevel(logging.DEBUG)
 
         logger.info("Custom encoder test")
+        handler.flush()
 
         output = handler.stream.getvalue()
         log_entry = json.loads(output.strip())
 
         assert log_entry.get("custom") is True
+
+        # Clean up
+        handler._request_ctx_var.set(None)
 
     def test_set_and_get_request(self):
         """Test setting and getting request context."""
@@ -142,6 +150,25 @@ class TestCloudLoggingHandler:
 
         self.handler.reset_request(token)
         assert self.handler.get_request() is None
+
+    def test_message_format_with_timestamp(self):
+        """Test that message includes timestamp and level."""
+        request = MockRequest()
+        request_logs = RequestLogs(request, None)
+        self.handler.set_request(request_logs)
+
+        self.logger.info("Test message")
+        self.handler.flush()
+
+        output = self.stream.getvalue()
+        log_entry = json.loads(output.strip())
+
+        # Message should contain timestamp, level, and actual message
+        message = log_entry["message"]
+        assert "INFO" in message
+        assert "Test message" in message
+        # Check for ISO timestamp format (contains T and timezone info)
+        assert "T" in message
 
 
 class TestRequestLogs:
