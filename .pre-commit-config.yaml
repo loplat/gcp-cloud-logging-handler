@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: clean-commit-msg
+        name: Clean Claude Code metadata
+        entry: python3 scripts/clean_commit_msg.py
+        language: system
+        stages: [commit-msg]

@@ -84,6 +84,7 @@ dev = [
     "fastapi>=0.123.0",
     "flask>=3.1.2",
     "httpx>=0.28.1",
+    "pre-commit>=4.5.0",
     "sanic>=25.3.0",
     "sanic-testing>=24.6.0",
     "starlette>=0.50.0",
