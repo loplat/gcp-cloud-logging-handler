@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from abc import ABC, abstractmethod
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Protocol
@@ -40,15 +41,189 @@ class RequestLogs:
         self.json_payload = json_payload
 
 
+# ============================================================================
+# Request Wrapper Classes (Strategy Pattern)
+# ============================================================================
+
+
+class RequestWrapper(ABC):
+    """Abstract base class for framework-specific request wrappers."""
+
+    @abstractmethod
+    def get_url(self, request: Any) -> str | None:
+        """Extract URL from request object."""
+        ...
+
+    @abstractmethod
+    def get_header(self, request: Any, header_name: str) -> str | None:
+        """Extract header value from request object."""
+        ...
+
+
+class StarletteRequestWrapper(RequestWrapper):
+    """Request wrapper for FastAPI/Starlette."""
+
+    def get_url(self, request: Any) -> str | None:
+        if request is None:
+            return None
+        if hasattr(request, "url"):
+            return str(request.url)
+        return None
+
+    def get_header(self, request: Any, header_name: str) -> str | None:
+        if request is None:
+            return None
+        headers = getattr(request, "headers", None)
+        if headers is None:
+            return None
+        return self._get_header_from_dict(headers, header_name)
+
+    def _get_header_from_dict(self, headers: Any, header_name: str) -> str | None:
+        if hasattr(headers, "get"):
+            value = headers.get(header_name) or headers.get(header_name.lower())
+            if value:
+                return value
+        if hasattr(headers, "items"):
+            header_lower = header_name.lower()
+            for key, value in headers.items():
+                if key.lower() == header_lower:
+                    return value
+        return None
+
+
+class FlaskRequestWrapper(RequestWrapper):
+    """Request wrapper for Flask."""
+
+    def get_url(self, request: Any) -> str | None:
+        if request is None:
+            return None
+        if hasattr(request, "base_url") and hasattr(request, "full_path"):
+            return str(request.base_url) + request.full_path.rstrip("?")
+        return None
+
+    def get_header(self, request: Any, header_name: str) -> str | None:
+        if request is None:
+            return None
+        headers = getattr(request, "headers", None)
+        if headers is None:
+            return None
+        if hasattr(headers, "get"):
+            value = headers.get(header_name) or headers.get(header_name.lower())
+            if value:
+                return value
+        return None
+
+
+class DjangoRequestWrapper(RequestWrapper):
+    """Request wrapper for Django."""
+
+    def get_url(self, request: Any) -> str | None:
+        if request is None:
+            return None
+        if hasattr(request, "build_absolute_uri"):
+            return request.build_absolute_uri()
+        return None
+
+    def get_header(self, request: Any, header_name: str) -> str | None:
+        if request is None:
+            return None
+        if hasattr(request, "META"):
+            meta_key = f"HTTP_{header_name.upper().replace('-', '_')}"
+            return request.META.get(meta_key)
+        return None
+
+
+class AiohttpRequestWrapper(RequestWrapper):
+    """Request wrapper for aiohttp."""
+
+    def get_url(self, request: Any) -> str | None:
+        if request is None:
+            return None
+        if hasattr(request, "url"):
+            return str(request.url)
+        if hasattr(request, "path"):
+            return request.path
+        return None
+
+    def get_header(self, request: Any, header_name: str) -> str | None:
+        if request is None:
+            return None
+        headers = getattr(request, "headers", None)
+        if headers is None:
+            return None
+        if hasattr(headers, "get"):
+            value = headers.get(header_name) or headers.get(header_name.lower())
+            if value:
+                return value
+        return None
+
+
+class SanicRequestWrapper(RequestWrapper):
+    """Request wrapper for Sanic."""
+
+    def get_url(self, request: Any) -> str | None:
+        if request is None:
+            return None
+        if hasattr(request, "url"):
+            return str(request.url)
+        return None
+
+    def get_header(self, request: Any, header_name: str) -> str | None:
+        if request is None:
+            return None
+        headers = getattr(request, "headers", None)
+        if headers is None:
+            return None
+        if hasattr(headers, "get"):
+            value = headers.get(header_name) or headers.get(header_name.lower())
+            if value:
+                return value
+        return None
+
+
+class DefaultRequestWrapper(RequestWrapper):
+    """Default request wrapper for unknown frameworks."""
+
+    def get_url(self, request: Any) -> str | None:
+        if request is None:
+            return None
+        if hasattr(request, "url"):
+            return str(request.url)
+        if hasattr(request, "path"):
+            return request.path
+        return None
+
+    def get_header(self, request: Any, header_name: str) -> str | None:
+        if request is None:
+            return None
+        headers = getattr(request, "headers", None)
+        if headers is None:
+            return None
+        if hasattr(headers, "get"):
+            value = headers.get(header_name) or headers.get(header_name.lower())
+            if value:
+                return value
+        if hasattr(headers, "items"):
+            header_lower = header_name.lower()
+            for key, value in headers.items():
+                if key.lower() == header_lower:
+                    return value
+        return None
+
+
+# Framework to wrapper class mapping
+_WRAPPER_CLASSES: dict[str, type[RequestWrapper]] = {
+    "starlette": StarletteRequestWrapper,
+    "flask": FlaskRequestWrapper,
+    "django": DjangoRequestWrapper,
+    "aiohttp": AiohttpRequestWrapper,
+    "sanic": SanicRequestWrapper,
+    "unknown": DefaultRequestWrapper,
+}
+
+
 def _get_framework_from_app(app: Any) -> str:
-    """Detect the web framework from app object's module.
-
-    Args:
-        app: Web framework application object.
-
-    Returns:
-        Framework identifier: 'django', 'flask', 'starlette', 'aiohttp', 'sanic', or 'unknown'.
-    """
+    """Detect the web framework from app object's module."""
     if app is None:
         return "unknown"
 
@@ -66,6 +241,16 @@ def _get_framework_from_app(app: Any) -> str:
         return "sanic"
 
     return "unknown"
+
+
+def _get_wrapper_class(framework: str) -> type[RequestWrapper]:
+    """Get the appropriate wrapper class for the framework."""
+    return _WRAPPER_CLASSES.get(framework, DefaultRequestWrapper)
+
+
+# ============================================================================
+# Cloud Logging Handler
+# ============================================================================
 
 
 class CloudLoggingHandler(logging.StreamHandler):
@@ -87,6 +272,7 @@ class CloudLoggingHandler(logging.StreamHandler):
         >>> from cloud_logging_handler import CloudLoggingHandler
         >>>
         >>> handler = CloudLoggingHandler(
+        ...     app=app,
         ...     trace_header_name="X-Cloud-Trace-Context",
         ...     project="my-gcp-project"
         ... )
@@ -121,60 +307,15 @@ class CloudLoggingHandler(logging.StreamHandler):
                 Valid values: 'django', 'flask', 'starlette', 'aiohttp', 'sanic'.
         """
         super().__init__(stream=sys.stdout)
-        self.framework = framework if framework else _get_framework_from_app(app)
+
+        # Determine framework and select wrapper class
+        detected_framework = framework if framework else _get_framework_from_app(app)
+        wrapper_class = _get_wrapper_class(detected_framework)
+        self.request_wrapper: RequestWrapper = wrapper_class()
+
         self.trace_header_name = trace_header_name
         self.json: ModuleType | JsonEncoder = json_impl if json_impl else json
         self.project = project
-
-    def _get_header(self, request: Any, header_name: str) -> str | None:
-        """Get a header value from request object using cached framework."""
-        if request is None:
-            return None
-
-        if self.framework == "django":
-            meta_key = f"HTTP_{header_name.upper().replace('-', '_')}"
-            return request.META.get(meta_key)
-
-        headers = getattr(request, "headers", None)
-        if headers is None:
-            return None
-
-        if hasattr(headers, "get"):
-            value = headers.get(header_name) or headers.get(header_name.lower())
-            if value:
-                return value
-
-        if hasattr(headers, "items"):
-            header_lower = header_name.lower()
-            for key, value in headers.items():
-                if key.lower() == header_lower:
-                    return value
-
-        return None
-
-    def _get_url(self, request: Any) -> str | None:
-        """Get URL from request object using cached framework."""
-        if request is None:
-            return None
-
-        if self.framework == "django":
-            return request.build_absolute_uri()
-
-        if self.framework == "flask":
-            return str(request.base_url) + request.full_path.rstrip("?")
-
-        if self.framework == "aiohttp":
-            if hasattr(request, "url"):
-                return str(request.url)
-            return request.path
-
-        if hasattr(request, "url"):
-            return str(request.url)
-
-        if hasattr(request, "path"):
-            return request.path
-
-        return None
 
     def get_request(self) -> RequestLogs | None:
         """Get the current request context.
@@ -238,12 +379,14 @@ class CloudLoggingHandler(logging.StreamHandler):
                 span = None
 
                 if request:
-                    url = self._get_url(request)
+                    url = self.request_wrapper.get_url(request)
                     if url:
                         request_log.json_payload["url"] = url
 
                     if self.trace_header_name:
-                        trace_header_value = self._get_header(request, self.trace_header_name)
+                        trace_header_value = self.request_wrapper.get_header(
+                            request, self.trace_header_name
+                        )
                         if trace_header_value:
                             # trace can be formatted as "TRACE_ID/SPAN_ID;o=TRACE_TRUE"
                             raw_trace = trace_header_value.split("/")

@@ -47,65 +47,65 @@ class MockAiohttpRequest:
 
 
 class TestHelperMethods:
-    """Test cases for handler helper methods."""
+    """Test cases for request wrapper methods."""
 
     def test_get_header_fastapi_style(self):
         """Test header extraction from FastAPI/Starlette request."""
         handler = CloudLoggingHandler(framework="starlette")
         request = MockRequest(headers={"X-Cloud-Trace-Context": "trace123"})
-        assert handler._get_header(request, "X-Cloud-Trace-Context") == "trace123"
+        assert handler.request_wrapper.get_header(request, "X-Cloud-Trace-Context") == "trace123"
 
     def test_get_header_case_insensitive(self):
         """Test case-insensitive header lookup."""
         handler = CloudLoggingHandler(framework="starlette")
         request = MockRequest(headers={"x-cloud-trace-context": "trace123"})
-        assert handler._get_header(request, "X-Cloud-Trace-Context") == "trace123"
+        assert handler.request_wrapper.get_header(request, "X-Cloud-Trace-Context") == "trace123"
 
     def test_get_header_django_style(self):
         """Test header extraction from Django request."""
         handler = CloudLoggingHandler(framework="django")
         request = MockDjangoRequest(meta={"HTTP_X_CLOUD_TRACE_CONTEXT": "trace123"})
-        assert handler._get_header(request, "X-Cloud-Trace-Context") == "trace123"
+        assert handler.request_wrapper.get_header(request, "X-Cloud-Trace-Context") == "trace123"
 
     def test_get_header_missing(self):
         """Test missing header returns None."""
         handler = CloudLoggingHandler(framework="starlette")
         request = MockRequest(headers={})
-        assert handler._get_header(request, "X-Cloud-Trace-Context") is None
+        assert handler.request_wrapper.get_header(request, "X-Cloud-Trace-Context") is None
 
     def test_get_header_none_request(self):
         """Test None request returns None."""
         handler = CloudLoggingHandler(framework="starlette")
-        assert handler._get_header(None, "X-Cloud-Trace-Context") is None
+        assert handler.request_wrapper.get_header(None, "X-Cloud-Trace-Context") is None
 
     def test_get_url_fastapi_style(self):
         """Test URL extraction from FastAPI/Starlette request."""
         handler = CloudLoggingHandler(framework="starlette")
         request = MockRequest(url="http://test.com/api")
-        assert handler._get_url(request) == "http://test.com/api"
+        assert handler.request_wrapper.get_url(request) == "http://test.com/api"
 
     def test_get_url_flask_style(self):
         """Test URL extraction from Flask request."""
         handler = CloudLoggingHandler(framework="flask")
         request = MockFlaskRequest(base_url="http://test.com", full_path="/api?param=1")
-        assert handler._get_url(request) == "http://test.com/api?param=1"
+        assert handler.request_wrapper.get_url(request) == "http://test.com/api?param=1"
 
     def test_get_url_django_style(self):
         """Test URL extraction from Django request."""
         handler = CloudLoggingHandler(framework="django")
         request = MockDjangoRequest(url="http://test.com/api")
-        assert handler._get_url(request) == "http://test.com/api"
+        assert handler.request_wrapper.get_url(request) == "http://test.com/api"
 
     def test_get_url_aiohttp_style(self):
         """Test URL extraction from aiohttp request."""
         handler = CloudLoggingHandler(framework="aiohttp")
         request = MockAiohttpRequest(path="/api")
-        assert handler._get_url(request) == "/api"
+        assert handler.request_wrapper.get_url(request) == "/api"
 
     def test_get_url_none_request(self):
         """Test None request returns None."""
         handler = CloudLoggingHandler(framework="starlette")
-        assert handler._get_url(None) is None
+        assert handler.request_wrapper.get_url(None) is None
 
 
 class TestCloudLoggingHandler:

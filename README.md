@@ -12,6 +12,8 @@ A Python logging handler for **Google Cloud Logging** with request tracing suppo
 - **Request Tracing**: Automatic trace context propagation via `X-Cloud-Trace-Context` header
 - **Log Aggregation**: Aggregates all logs within a single request into one log entry
 - **Severity Tracking**: Automatically tracks the highest severity level per request
+- **Multi-Framework Support**: FastAPI, Flask, Django, aiohttp, Sanic
+- **Auto Framework Detection**: Automatically detects framework from app instance
 - **Custom JSON Encoder**: Support for high-performance JSON libraries (e.g., `ujson`)
 - **Zero Dependencies**: Core handler has no external dependencies
 
@@ -27,52 +29,28 @@ pip install cloud-logging-handler
 
 ## Quick Start
 
-### Basic Usage
+### FastAPI / Starlette
 
 ```python
 import logging
-from cloud_logging_handler import CloudLoggingHandler
-
-# Create handler
-handler = CloudLoggingHandler(
-    trace_header_name="X-Cloud-Trace-Context",
-    project="your-gcp-project-id"
-)
-
-# Configure logging
-logger = logging.getLogger()
-logger.addHandler(handler)
-logger.setLevel(logging.DEBUG)
-
-# Log messages
-logger.info("Hello, Cloud Logging!")
-```
-
-### FastAPI Integration
-
-```python
-import logging
-import os
 from fastapi import FastAPI, Request
 from cloud_logging_handler import CloudLoggingHandler, RequestLogs
 
 app = FastAPI()
 
-# Initialize handler
+# Initialize handler with app for auto framework detection
 handler = CloudLoggingHandler(
-    trace_header_name="X-Cloud-Trace-Context",
-    project=os.environ.get("GCP_PROJECT"),
+    app=app,
+    project="your-gcp-project-id"
 )
 
-# Configure logging
 logger = logging.getLogger()
 logger.addHandler(handler)
 logger.setLevel(logging.DEBUG)
 
-# Add middleware for request context
 @app.middleware("http")
 async def logging_middleware(request: Request, call_next):
-    request.state.token = handler.set_request(RequestLogs(request, None))
+    handler.set_request(RequestLogs(request, None))
     response = await call_next(request)
     handler.flush()
     return response
@@ -81,6 +59,146 @@ async def logging_middleware(request: Request, call_next):
 async def root():
     logging.info("Processing request")
     return {"message": "Hello World"}
+```
+
+### Flask
+
+```python
+import logging
+from flask import Flask, g, request
+from cloud_logging_handler import CloudLoggingHandler, RequestLogs
+
+app = Flask(__name__)
+
+handler = CloudLoggingHandler(
+    app=app,
+    project="your-gcp-project-id"
+)
+
+logger = logging.getLogger()
+logger.addHandler(handler)
+logger.setLevel(logging.DEBUG)
+
+@app.before_request
+def before_request():
+    handler.set_request(RequestLogs(request, None))
+
+@app.after_request
+def after_request(response):
+    handler.flush()
+    return response
+
+@app.route("/")
+def hello():
+    logging.info("Processing request")
+    return {"message": "Hello World"}
+```
+
+### Django
+
+```python
+# settings.py
+LOGGING = {
+    'version': 1,
+    'handlers': {
+        'cloud': {
+            'class': 'cloud_logging_handler.CloudLoggingHandler',
+            'framework': 'django',
+            'project': 'your-gcp-project-id',
+        },
+    },
+    'root': {
+        'handlers': ['cloud'],
+        'level': 'DEBUG',
+    },
+}
+
+# middleware.py
+from cloud_logging_handler import CloudLoggingHandler, RequestLogs
+import logging
+
+class CloudLoggingMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.handler = None
+        for h in logging.getLogger().handlers:
+            if isinstance(h, CloudLoggingHandler):
+                self.handler = h
+                break
+
+    def __call__(self, request):
+        if self.handler:
+            self.handler.set_request(RequestLogs(request, None))
+        response = self.get_response(request)
+        if self.handler:
+            self.handler.flush()
+        return response
+```
+
+### aiohttp
+
+```python
+import logging
+from aiohttp import web
+from cloud_logging_handler import CloudLoggingHandler, RequestLogs
+
+app = web.Application()
+
+handler = CloudLoggingHandler(
+    app=app,
+    project="your-gcp-project-id"
+)
+
+logger = logging.getLogger()
+logger.addHandler(handler)
+logger.setLevel(logging.DEBUG)
+
+@web.middleware
+async def logging_middleware(request, handler_func):
+    handler.set_request(RequestLogs(request, None))
+    response = await handler_func(request)
+    handler.flush()
+    return response
+
+app.middlewares.append(logging_middleware)
+
+async def hello(request):
+    logging.info("Processing request")
+    return web.json_response({"message": "Hello World"})
+
+app.router.add_get("/", hello)
+```
+
+### Sanic
+
+```python
+import logging
+from sanic import Sanic, json
+from cloud_logging_handler import CloudLoggingHandler, RequestLogs
+
+app = Sanic("MyApp")
+
+handler = CloudLoggingHandler(
+    app=app,
+    project="your-gcp-project-id"
+)
+
+logger = logging.getLogger()
+logger.addHandler(handler)
+logger.setLevel(logging.DEBUG)
+
+@app.middleware("request")
+async def before_request(request):
+    handler.set_request(RequestLogs(request, None))
+
+@app.middleware("response")
+async def after_request(request, response):
+    handler.flush()
+
+@app.get("/")
+async def hello(request):
+    logging.info("Processing request")
+    return json({"message": "Hello World"})
 ```
 
 ### Using with ujson
@@ -92,8 +210,41 @@ import ujson
 from cloud_logging_handler import CloudLoggingHandler
 
 handler = CloudLoggingHandler(
-    trace_header_name="X-Cloud-Trace-Context",
+    app=app,
     json_impl=ujson,
+    project="your-gcp-project-id"
+)
+```
+
+## Configuration
+
+### CloudLoggingHandler Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `app` | `object` | Web application instance for auto framework detection |
+| `framework` | `str` | Explicit framework name (`starlette`, `flask`, `django`, `aiohttp`, `sanic`) |
+| `trace_header_name` | `str` | HTTP header name for trace context (default: `X-Cloud-Trace-Context`) |
+| `json_impl` | `module` | Custom JSON encoder module (must have `dumps` method) |
+| `project` | `str` | GCP project ID for trace URL construction |
+
+### Framework Detection
+
+The handler automatically detects the framework from the app instance:
+
+| App Module | Detected Framework |
+|------------|-------------------|
+| `starlette.*`, `fastapi.*` | `starlette` |
+| `flask.*` | `flask` |
+| `django.*` | `django` |
+| `aiohttp.*` | `aiohttp` |
+| `sanic.*` | `sanic` |
+
+You can also explicitly specify the framework:
+
+```python
+handler = CloudLoggingHandler(
+    framework="flask",
     project="your-gcp-project-id"
 )
 ```
@@ -124,34 +275,20 @@ When logging outside a request context, logs are output as plain text:
 Processing request
 ```
 
-## Configuration
-
-### CloudLoggingHandler Parameters
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `trace_header_name` | `str` | HTTP header name for trace context (e.g., `X-Cloud-Trace-Context`) |
-| `json_impl` | `module` | Custom JSON encoder module (must have `dumps` method) |
-| `project` | `str` | GCP project ID for trace URL construction |
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `GCP_PROJECT` | Google Cloud Project ID |
-
 ## How It Works
 
-1. **Request Start**: Middleware creates a `RequestLogs` context
-2. **Log Accumulation**: All log calls within the request are accumulated in `message` field
-3. **Severity Tracking**: The highest severity level is tracked
-4. **Trace Extraction**: Trace context is extracted from request headers
-5. **Request End**: `flush()` emits all accumulated logs as a single structured entry
+1. **Handler Initialization**: Framework-specific wrapper is selected based on `app` or `framework` parameter
+2. **Request Start**: Middleware creates a `RequestLogs` context
+3. **Log Accumulation**: All log calls within the request are accumulated in `message` field
+4. **Severity Tracking**: The highest severity level is tracked
+5. **Trace Extraction**: Trace context is extracted from request headers using framework-specific methods
+6. **Request End**: `flush()` emits all accumulated logs as a single structured entry
 
 This approach provides several benefits:
 - Correlate all logs from a single request
 - View logs grouped by trace in Cloud Console
 - Reduce log volume while maintaining detail
+- Optimized header/URL extraction per framework
 
 ## Development
 
