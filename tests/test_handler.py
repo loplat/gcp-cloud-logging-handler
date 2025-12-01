@@ -5,7 +5,6 @@ import json
 import logging
 
 from cloud_logging_handler import CloudLoggingHandler, RequestLogs
-from cloud_logging_handler.handler import _get_header, _get_url
 
 
 class MockRequest:
@@ -47,56 +46,66 @@ class MockAiohttpRequest:
         self.headers = headers or {}
 
 
-class TestHelperFunctions:
-    """Test cases for helper functions."""
+class TestHelperMethods:
+    """Test cases for handler helper methods."""
 
     def test_get_header_fastapi_style(self):
         """Test header extraction from FastAPI/Starlette request."""
+        handler = CloudLoggingHandler(framework="starlette")
         request = MockRequest(headers={"X-Cloud-Trace-Context": "trace123"})
-        assert _get_header(request, "X-Cloud-Trace-Context", "starlette") == "trace123"
+        assert handler._get_header(request, "X-Cloud-Trace-Context") == "trace123"
 
     def test_get_header_case_insensitive(self):
         """Test case-insensitive header lookup."""
+        handler = CloudLoggingHandler(framework="starlette")
         request = MockRequest(headers={"x-cloud-trace-context": "trace123"})
-        assert _get_header(request, "X-Cloud-Trace-Context", "starlette") == "trace123"
+        assert handler._get_header(request, "X-Cloud-Trace-Context") == "trace123"
 
     def test_get_header_django_style(self):
         """Test header extraction from Django request."""
+        handler = CloudLoggingHandler(framework="django")
         request = MockDjangoRequest(meta={"HTTP_X_CLOUD_TRACE_CONTEXT": "trace123"})
-        assert _get_header(request, "X-Cloud-Trace-Context", "django") == "trace123"
+        assert handler._get_header(request, "X-Cloud-Trace-Context") == "trace123"
 
     def test_get_header_missing(self):
         """Test missing header returns None."""
+        handler = CloudLoggingHandler(framework="starlette")
         request = MockRequest(headers={})
-        assert _get_header(request, "X-Cloud-Trace-Context", "starlette") is None
+        assert handler._get_header(request, "X-Cloud-Trace-Context") is None
 
     def test_get_header_none_request(self):
         """Test None request returns None."""
-        assert _get_header(None, "X-Cloud-Trace-Context", "starlette") is None
+        handler = CloudLoggingHandler(framework="starlette")
+        assert handler._get_header(None, "X-Cloud-Trace-Context") is None
 
     def test_get_url_fastapi_style(self):
         """Test URL extraction from FastAPI/Starlette request."""
+        handler = CloudLoggingHandler(framework="starlette")
         request = MockRequest(url="http://test.com/api")
-        assert _get_url(request, "starlette") == "http://test.com/api"
+        assert handler._get_url(request) == "http://test.com/api"
 
     def test_get_url_flask_style(self):
         """Test URL extraction from Flask request."""
+        handler = CloudLoggingHandler(framework="flask")
         request = MockFlaskRequest(base_url="http://test.com", full_path="/api?param=1")
-        assert _get_url(request, "flask") == "http://test.com/api?param=1"
+        assert handler._get_url(request) == "http://test.com/api?param=1"
 
     def test_get_url_django_style(self):
         """Test URL extraction from Django request."""
+        handler = CloudLoggingHandler(framework="django")
         request = MockDjangoRequest(url="http://test.com/api")
-        assert _get_url(request, "django") == "http://test.com/api"
+        assert handler._get_url(request) == "http://test.com/api"
 
     def test_get_url_aiohttp_style(self):
         """Test URL extraction from aiohttp request."""
+        handler = CloudLoggingHandler(framework="aiohttp")
         request = MockAiohttpRequest(path="/api")
-        assert _get_url(request, "aiohttp") == "/api"
+        assert handler._get_url(request) == "/api"
 
     def test_get_url_none_request(self):
         """Test None request returns None."""
-        assert _get_url(None, "starlette") is None
+        handler = CloudLoggingHandler(framework="starlette")
+        assert handler._get_url(None) is None
 
 
 class TestCloudLoggingHandler:

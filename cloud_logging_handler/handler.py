@@ -68,80 +68,6 @@ def _get_framework_from_app(app: Any) -> str:
     return "unknown"
 
 
-def _get_header(request: Any, header_name: str, framework: str) -> str | None:
-    """Get a header value from request object.
-
-    Args:
-        request: HTTP request object from any framework.
-        header_name: Name of the header to retrieve.
-        framework: Framework identifier from _get_framework_from_app().
-
-    Returns:
-        Header value if found, None otherwise.
-    """
-    if request is None:
-        return None
-
-    # Django: headers are in META with HTTP_ prefix
-    if framework == "django":
-        meta_key = f"HTTP_{header_name.upper().replace('-', '_')}"
-        return request.META.get(meta_key)
-
-    # Flask, Starlette, aiohttp, Sanic: headers attribute with dict-like access
-    headers = getattr(request, "headers", None)
-    if headers is None:
-        return None
-
-    # Most frameworks support case-insensitive dict-like access
-    if hasattr(headers, "get"):
-        value = headers.get(header_name) or headers.get(header_name.lower())
-        if value:
-            return value
-
-    # Fallback: iterate for case-insensitive lookup
-    if hasattr(headers, "items"):
-        header_lower = header_name.lower()
-        for key, value in headers.items():
-            if key.lower() == header_lower:
-                return value
-
-    return None
-
-
-def _get_url(request: Any, framework: str) -> str | None:
-    """Get URL from request object.
-
-    Args:
-        request: HTTP request object from any framework.
-        framework: Framework identifier from _get_framework_from_app().
-
-    Returns:
-        URL string if available, None otherwise.
-    """
-    if request is None:
-        return None
-
-    if framework == "django":
-        return request.build_absolute_uri()
-
-    if framework == "flask":
-        return str(request.base_url) + request.full_path.rstrip("?")
-
-    if framework == "aiohttp":
-        if hasattr(request, "url"):
-            return str(request.url)
-        return request.path
-
-    # Starlette, Sanic, unknown: try common patterns
-    if hasattr(request, "url"):
-        return str(request.url)
-
-    if hasattr(request, "path"):
-        return request.path
-
-    return None
-
-
 class CloudLoggingHandler(logging.StreamHandler):
     """A logging handler for Google Cloud Logging with request tracing.
 
@@ -199,6 +125,56 @@ class CloudLoggingHandler(logging.StreamHandler):
         self.trace_header_name = trace_header_name
         self.json: ModuleType | JsonEncoder = json_impl if json_impl else json
         self.project = project
+
+    def _get_header(self, request: Any, header_name: str) -> str | None:
+        """Get a header value from request object using cached framework."""
+        if request is None:
+            return None
+
+        if self.framework == "django":
+            meta_key = f"HTTP_{header_name.upper().replace('-', '_')}"
+            return request.META.get(meta_key)
+
+        headers = getattr(request, "headers", None)
+        if headers is None:
+            return None
+
+        if hasattr(headers, "get"):
+            value = headers.get(header_name) or headers.get(header_name.lower())
+            if value:
+                return value
+
+        if hasattr(headers, "items"):
+            header_lower = header_name.lower()
+            for key, value in headers.items():
+                if key.lower() == header_lower:
+                    return value
+
+        return None
+
+    def _get_url(self, request: Any) -> str | None:
+        """Get URL from request object using cached framework."""
+        if request is None:
+            return None
+
+        if self.framework == "django":
+            return request.build_absolute_uri()
+
+        if self.framework == "flask":
+            return str(request.base_url) + request.full_path.rstrip("?")
+
+        if self.framework == "aiohttp":
+            if hasattr(request, "url"):
+                return str(request.url)
+            return request.path
+
+        if hasattr(request, "url"):
+            return str(request.url)
+
+        if hasattr(request, "path"):
+            return request.path
+
+        return None
 
     def get_request(self) -> RequestLogs | None:
         """Get the current request context.
@@ -262,12 +238,12 @@ class CloudLoggingHandler(logging.StreamHandler):
                 span = None
 
                 if request:
-                    url = _get_url(request, self.framework)
+                    url = self._get_url(request)
                     if url:
                         request_log.json_payload["url"] = url
 
                     if self.trace_header_name:
-                        trace_header_value = _get_header(request, self.trace_header_name, self.framework)
+                        trace_header_value = self._get_header(request, self.trace_header_name)
                         if trace_header_value:
                             # trace can be formatted as "TRACE_ID/SPAN_ID;o=TRACE_TRUE"
                             raw_trace = trace_header_value.split("/")
