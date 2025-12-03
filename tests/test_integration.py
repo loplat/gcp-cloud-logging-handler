@@ -34,7 +34,7 @@ class TestFastAPIIntegration:
 
         class LoggingMiddleware(BaseHTTPMiddleware):
             async def dispatch(self, request: Request, call_next):
-                request_logs = RequestLogs(request, None)
+                request_logs = RequestLogs(request)
                 token = handler.set_request(request_logs)
                 try:
                     logger.info(f"Request started: {request.url.path}")
@@ -136,7 +136,7 @@ class TestFlaskIntegration:
 
         @app.before_request
         def before_request():
-            request_logs = RequestLogs(request, None)
+            request_logs = RequestLogs(request)
             g.log_token = handler.set_request(request_logs)
             logger.info(f"Request started: {request.path}")
 
@@ -259,7 +259,7 @@ class TestDjangoIntegration:
         factory, handler, stream, logger = django_request_factory
 
         request = factory.get("/test", SERVER_NAME="testserver")
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         token = handler.set_request(request_logs)
 
         try:
@@ -287,7 +287,7 @@ class TestDjangoIntegration:
             HTTP_X_CLOUD_TRACE_CONTEXT="trace123/span456;o=1",
             SERVER_NAME="testserver",
         )
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         token = handler.set_request(request_logs)
 
         try:
@@ -307,7 +307,7 @@ class TestDjangoIntegration:
         factory, handler, stream, logger = django_request_factory
 
         request = factory.get("/test?param=value", SERVER_NAME="testserver")
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         token = handler.set_request(request_logs)
 
         try:
@@ -346,7 +346,7 @@ class TestAiohttpIntegration:
         # handler is passed as keyword argument in newer versions
         @web.middleware
         async def logging_middleware(request, *, handler):
-            request_logs = RequestLogs(request, None)
+            request_logs = RequestLogs(request)
             token = log_handler.set_request(request_logs)
             try:
                 logger.info(f"Request started: {request.path}")
@@ -454,7 +454,7 @@ class TestSanicIntegration:
 
         @app.middleware("request")
         async def before_request(request):
-            request_logs = RequestLogs(request, None)
+            request_logs = RequestLogs(request)
             request.ctx.log_token = handler.set_request(request_logs)
             logger.info(f"Request started: {request.path}")
 
@@ -554,7 +554,7 @@ class TestSeverityEscalation:
             headers = {}
 
         request = MockRequest()
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         token = handler.set_request(request_logs)
 
         try:
@@ -580,7 +580,7 @@ class TestSeverityEscalation:
             headers = {}
 
         request = MockRequest()
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         token = handler.set_request(request_logs)
 
         try:

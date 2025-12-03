@@ -34,11 +34,13 @@ class RequestLogs:
     Attributes:
         request: The HTTP request object (framework-agnostic).
         json_payload: Dictionary containing structured log data.
+        token: ContextVar token for resetting the request context.
     """
 
-    def __init__(self, request: Any, json_payload: dict[str, Any] | None = None) -> None:
+    def __init__(self, request: Any) -> None:
         self.request = request
-        self.json_payload = json_payload
+        self.json_payload: dict[str, Any] | None = None
+        self.token: Any = None
 
 
 # ============================================================================
@@ -334,7 +336,9 @@ class CloudLoggingHandler(logging.StreamHandler):
         Returns:
             Token that can be used to reset the context.
         """
-        return self._request_ctx_var.set(request)
+        token = self._request_ctx_var.set(request)
+        request.token = token
+        return token
 
     def reset_request(self, token: Any) -> None:
         """Reset the request context using a token.
@@ -441,6 +445,5 @@ class CloudLoggingHandler(logging.StreamHandler):
 
             self.stream.write(self.json.dumps(log) + self.terminator)
 
-            request = request_log.request
-            if hasattr(request, "ctx"):
-                self.reset_request(request.ctx)
+            if request_log.token:
+                self.reset_request(request_log.token)

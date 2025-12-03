@@ -50,7 +50,7 @@ logger.setLevel(logging.DEBUG)
 
 @app.middleware("http")
 async def logging_middleware(request: Request, call_next):
-    handler.set_request(RequestLogs(request, None))
+    handler.set_request(RequestLogs(request))
     response = await call_next(request)
     handler.flush()
     return response
@@ -81,7 +81,7 @@ logger.setLevel(logging.DEBUG)
 
 @app.before_request
 def before_request():
-    handler.set_request(RequestLogs(request, None))
+    handler.set_request(RequestLogs(request))
 
 @app.after_request
 def after_request(response):
@@ -128,7 +128,7 @@ class CloudLoggingMiddleware:
 
     def __call__(self, request):
         if self.handler:
-            self.handler.set_request(RequestLogs(request, None))
+            self.handler.set_request(RequestLogs(request))
         response = self.get_response(request)
         if self.handler:
             self.handler.flush()
@@ -155,7 +155,7 @@ logger.setLevel(logging.DEBUG)
 
 @web.middleware
 async def logging_middleware(request, handler_func):
-    handler.set_request(RequestLogs(request, None))
+    handler.set_request(RequestLogs(request))
     response = await handler_func(request)
     handler.flush()
     return response
@@ -189,7 +189,7 @@ logger.setLevel(logging.DEBUG)
 
 @app.middleware("request")
 async def before_request(request):
-    handler.set_request(RequestLogs(request, None))
+    handler.set_request(RequestLogs(request))
 
 @app.middleware("response")
 async def after_request(request, response):

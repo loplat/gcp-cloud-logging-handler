@@ -143,7 +143,7 @@ class TestCloudLoggingHandler:
     def test_emit_with_request_context(self):
         """Test logging with request context accumulates logs."""
         request = MockRequest()
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         self.handler.set_request(request_logs)
 
         self.logger.info("First message")
@@ -167,7 +167,7 @@ class TestCloudLoggingHandler:
     def test_trace_context_extraction(self):
         """Test extraction of trace context from headers."""
         request = MockRequest(headers={"X-Cloud-Trace-Context": "abc123/def456;o=1"})
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         self.handler.set_request(request_logs)
 
         self.logger.info("Traced message")
@@ -182,7 +182,7 @@ class TestCloudLoggingHandler:
     def test_trace_context_case_insensitive(self):
         """Test trace context extraction is case-insensitive."""
         request = MockRequest(headers={"x-cloud-trace-context": "abc123/def456;o=1"})
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         self.handler.set_request(request_logs)
 
         self.logger.info("Traced message")
@@ -197,7 +197,7 @@ class TestCloudLoggingHandler:
     def test_severity_escalation(self):
         """Test that severity escalates to highest level."""
         request = MockRequest()
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         self.handler.set_request(request_logs)
 
         self.logger.debug("Debug message")
@@ -225,7 +225,7 @@ class TestCloudLoggingHandler:
 
         # Set up request context to trigger JSON output
         request = MockRequest()
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         handler.set_request(request_logs)
 
         logger = logging.getLogger("custom_logger")
@@ -247,14 +247,14 @@ class TestCloudLoggingHandler:
     def test_set_and_get_request(self):
         """Test setting and getting request context."""
         request = MockRequest()
-        request_logs = RequestLogs(request, {"existing": "data"})
+        request_logs = RequestLogs(request)
 
         token = self.handler.set_request(request_logs)
         retrieved = self.handler.get_request()
 
         assert retrieved is request_logs
         assert retrieved.request is request
-        assert retrieved.json_payload == {"existing": "data"}
+        assert retrieved.token is token
 
         self.handler.reset_request(token)
         assert self.handler.get_request() is None
@@ -262,7 +262,7 @@ class TestCloudLoggingHandler:
     def test_message_format_with_timestamp(self):
         """Test that message includes timestamp and level."""
         request = MockRequest()
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         self.handler.set_request(request_logs)
 
         self.logger.info("Test message")
@@ -298,7 +298,7 @@ class TestCloudLoggingHandler:
             url="http://django.test/api",
             meta={"HTTP_X_CLOUD_TRACE_CONTEXT": "django123/span456;o=1"},
         )
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
         handler.set_request(request_logs)
 
         logger.info("Django test")
@@ -320,17 +320,8 @@ class TestRequestLogs:
     def test_request_logs_creation(self):
         """Test RequestLogs initialization."""
         request = MockRequest()
-        payload = {"key": "value"}
-
-        request_logs = RequestLogs(request, payload)
-
-        assert request_logs.request is request
-        assert request_logs.json_payload == payload
-
-    def test_request_logs_with_none_payload(self):
-        """Test RequestLogs with None payload."""
-        request = MockRequest()
-        request_logs = RequestLogs(request, None)
+        request_logs = RequestLogs(request)
 
         assert request_logs.request is request
         assert request_logs.json_payload is None
+        assert request_logs.token is None

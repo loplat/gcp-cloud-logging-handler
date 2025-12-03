@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2025-12-03
+
+### Changed
+- Simplified `RequestLogs` constructor: removed `json_payload` parameter (now always initialized as `None`)
+- `flush()` now uses stored token instead of framework-specific `request.ctx` reference
+
+### Fixed
+- Fixed framework-agnostic context reset in `flush()` - previously only worked with Sanic's `request.ctx`
+
+## [0.2.2] - 2025-12-03
+
+### Changed
+- Use array for message accumulation instead of string concatenation for better performance
+
 ## [0.2.0] - 2025-12-01
 
 ### Changed
