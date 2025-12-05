@@ -7,7 +7,7 @@ optimized for FastAPI applications running on Google Cloud Platform.
 
 from cloud_logging_handler.handler import CloudLoggingHandler, RequestLogs
 
-__version__ = "0.2.0"
+__version__ = "0.2.5"
 __all__ = [
     "CloudLoggingHandler",
     "RequestLogs",

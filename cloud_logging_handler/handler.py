@@ -348,8 +348,12 @@ class CloudLoggingHandler(logging.StreamHandler):
         """
         try:
             self._request_ctx_var.reset(token)
-        except Exception as e:
-            logging.exception(e)
+        except ValueError:
+            # Token was created in a different context, safe to ignore
+            pass
+        except Exception:
+            # Silently ignore other errors to prevent logging loops
+            pass
 
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record as structured JSON.
@@ -412,9 +416,13 @@ class CloudLoggingHandler(logging.StreamHandler):
             else:
                 # Subsequent log - append and update severity if higher
                 cur_level = getattr(logging, record.levelname)
-                prev_level = getattr(logging, request_log.json_payload["severity"])
+                prev_level = getattr(logging, request_log.json_payload.get("severity", "DEBUG"))
                 if cur_level > prev_level:
                     request_log.json_payload["severity"] = record.levelname
+
+                # Ensure _messages exists before appending
+                if "_messages" not in request_log.json_payload:
+                    request_log.json_payload["_messages"] = []
 
                 request_log.json_payload["_messages"].append(
                     f"{datetime.now(timezone.utc).isoformat()}\t{record.levelname}\t{msg}"
