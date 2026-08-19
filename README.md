@@ -216,6 +216,24 @@ handler = CloudLoggingHandler(
 )
 ```
 
+### Structured fields with `extra`
+
+Fields passed through Python logging's `extra` argument are added to the
+request's top-level JSON payload while the message remains part of the
+aggregated request log:
+
+```python
+logging.info(
+    "wps_call",
+    extra={"client_id": "wpstest", "endpoint": "/wps"},
+)
+```
+
+This produces `client_id` and `endpoint` fields alongside the aggregated
+`message`. Values must be supported by the configured JSON encoder. Handler-
+own fields such as `severity`, `url`, `message`, and trace fields cannot be
+overridden by `extra`.
+
 ## Configuration
 
 ### CloudLoggingHandler Parameters
@@ -263,7 +281,7 @@ When logging within a request context, logs are aggregated and output as structu
   "url": "https://example.com/api/endpoint",
   "logging.googleapis.com/trace": "projects/your-project/traces/abc123",
   "logging.googleapis.com/spanId": "def456",
-  "message": "\n2025-12-01T12:00:00.000000+00:00\tINFO\tProcessing request\n2025-12-01T12:00:00.001000+00:00\tINFO\tRequest completed"
+  "message": "Processing request\nRequest completed"
 }
 ```
 

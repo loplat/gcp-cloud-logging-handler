@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Copy Python logging `extra` fields into the top-level request `jsonPayload`.
+
+### Changed
+- Aggregated request messages now use the configured formatter output directly.
+
 ## [0.2.3] - 2025-12-03
 
 ### Changed

@@ -164,6 +164,44 @@ class TestCloudLoggingHandler:
         assert "First message" in log_entry["message"]
         assert "Second message" in log_entry["message"]
 
+    def test_extra_fields_are_added_to_json_payload(self):
+        """Test that logging extra fields become top-level structured fields."""
+        request = MockRequest()
+        request_logs = RequestLogs(request)
+        self.handler.set_request(request_logs)
+
+        self.logger.info(
+            "WPS call",
+            extra={"client_id": "wpstest", "endpoint": "/wps"},
+        )
+        self.handler.flush()
+
+        output = self.stream.getvalue()
+        log_entry = json.loads(output.strip())
+
+        assert log_entry["message"] == "WPS call"
+        assert log_entry["client_id"] == "wpstest"
+        assert log_entry["endpoint"] == "/wps"
+        assert "levelno" not in log_entry
+
+    def test_extra_fields_cannot_override_handler_fields(self):
+        """Test that handler-owned structured fields remain authoritative."""
+        request = MockRequest()
+        request_logs = RequestLogs(request)
+        self.handler.set_request(request_logs)
+
+        self.logger.info(
+            "Test message",
+            extra={"severity": "ERROR", "url": "https://malicious.example"},
+        )
+        self.handler.flush()
+
+        output = self.stream.getvalue()
+        log_entry = json.loads(output.strip())
+
+        assert log_entry["severity"] == "INFO"
+        assert log_entry["url"] == "http://test.com/api"
+
     def test_trace_context_extraction(self):
         """Test extraction of trace context from headers."""
         request = MockRequest(headers={"X-Cloud-Trace-Context": "abc123/def456;o=1"})
@@ -259,8 +297,12 @@ class TestCloudLoggingHandler:
         self.handler.reset_request(token)
         assert self.handler.get_request() is None
 
-    def test_message_format_with_timestamp(self):
-        """Test that message includes timestamp and level."""
+    def test_message_format_uses_formatter(self):
+        """Test that message uses the configured formatter."""
+        # Set a custom format
+        formatter = logging.Formatter("%(levelname)s - %(name)s - %(message)s")
+        self.handler.setFormatter(formatter)
+
         request = MockRequest()
         request_logs = RequestLogs(request)
         self.handler.set_request(request_logs)
@@ -271,12 +313,25 @@ class TestCloudLoggingHandler:
         output = self.stream.getvalue()
         log_entry = json.loads(output.strip())
 
-        # Message should contain timestamp, level, and actual message
+        # Message should use the custom format
         message = log_entry["message"]
-        assert "INFO" in message
+        assert message == "INFO - test_logger - Test message"
+
+    def test_message_format_default(self):
+        """Test that message uses default format when no formatter is set."""
+        request = MockRequest()
+        request_logs = RequestLogs(request)
+        self.handler.set_request(request_logs)
+
+        self.logger.info("Test message")
+        self.handler.flush()
+
+        output = self.stream.getvalue()
+        log_entry = json.loads(output.strip())
+
+        # Default format just includes the message
+        message = log_entry["message"]
         assert "Test message" in message
-        # Check for ISO timestamp format (contains T and timezone info)
-        assert "T" in message
 
     def test_django_request(self):
         """Test with Django-style request."""

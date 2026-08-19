@@ -15,7 +15,6 @@ import logging
 import sys
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -26,6 +25,13 @@ class JsonEncoder(Protocol):
     """Protocol for JSON encoder compatibility."""
 
     def dumps(self, obj: Any) -> str: ...
+
+
+_LOG_RECORD_ATTRIBUTES = frozenset(vars(logging.LogRecord("", 0, "", 0, "", (), None)).keys()) | {
+    "asctime",
+    "message",
+    "taskName",
+}
 
 
 class RequestLogs:
@@ -284,6 +290,18 @@ class CloudLoggingHandler(logging.StreamHandler):
     """
 
     REQUEST_ID_CTX_KEY = "request_id"
+    _RESERVED_PAYLOAD_KEYS = frozenset(
+        {
+            "severity",
+            "name",
+            "process",
+            "url",
+            "logging.googleapis.com/trace",
+            "logging.googleapis.com/spanId",
+            "message",
+            "_messages",
+        }
+    )
 
     _request_ctx_var: ContextVar[RequestLogs | None] = ContextVar(REQUEST_ID_CTX_KEY, default=None)
 
@@ -355,11 +373,26 @@ class CloudLoggingHandler(logging.StreamHandler):
             # Silently ignore other errors to prevent logging loops
             pass
 
+    @classmethod
+    def _get_extra_fields(cls, record: logging.LogRecord) -> dict[str, Any]:
+        """Return custom ``logging`` extra fields from a log record.
+
+        Standard LogRecord attributes are omitted so only values supplied via
+        ``logger.log(..., extra={...})`` are copied into the structured payload.
+        Handler-owned fields cannot be overridden by a caller-provided extra.
+        """
+        return {
+            key: value
+            for key, value in vars(record).items()
+            if key not in _LOG_RECORD_ATTRIBUTES and key not in cls._RESERVED_PAYLOAD_KEYS
+        }
+
     def emit(self, record: logging.LogRecord) -> None:
         """Emit a log record as structured JSON.
 
         If within a request context, logs are accumulated and the highest
-        severity level is tracked. Otherwise, logs are emitted as plain text.
+        severity level is tracked. Custom ``logging`` extra fields are copied
+        to the top-level JSON payload. Otherwise, logs are emitted as plain text.
 
         Args:
             record: The log record to emit.
@@ -410,9 +443,7 @@ class CloudLoggingHandler(logging.StreamHandler):
                             request_log.json_payload["logging.googleapis.com/spanId"] = span
 
                 request_log.json_payload["severity"] = record.levelname
-                request_log.json_payload["_messages"] = [
-                    f"{datetime.now(timezone.utc).isoformat()}\t{record.levelname}\t{msg}"
-                ]
+                request_log.json_payload["_messages"] = [msg]
             else:
                 # Subsequent log - append and update severity if higher
                 cur_level = getattr(logging, record.levelname)
@@ -424,10 +455,9 @@ class CloudLoggingHandler(logging.StreamHandler):
                 if "_messages" not in request_log.json_payload:
                     request_log.json_payload["_messages"] = []
 
-                request_log.json_payload["_messages"].append(
-                    f"{datetime.now(timezone.utc).isoformat()}\t{record.levelname}\t{msg}"
-                )
+                request_log.json_payload["_messages"].append(msg)
 
+            request_log.json_payload.update(self._get_extra_fields(record))
             self.set_request(request_log)
 
         except RecursionError:
